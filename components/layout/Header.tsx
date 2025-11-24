@@ -1,4 +1,5 @@
 
+
 import React from 'react';
 import { GameState } from '../../types';
 import { Wifi } from 'lucide-react';
