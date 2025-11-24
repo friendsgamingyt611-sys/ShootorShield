@@ -1,0 +1,5 @@
+{
+  "name": "Shoot or Shield: Cyber Tactics",
+  "description": "A strategic turn-based duel of wits. Choose between Shooting, Shielding, or Idling. Managing your armor durability and health is key, as unnecessary shielding penalizes your resources. Upgrade gear and outsmart the AI.",
+  "requestFramePermissions": []
+}
