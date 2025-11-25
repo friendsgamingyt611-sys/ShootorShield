@@ -1,5 +1,4 @@
 
-
 import { PlayerStats, ItemStats, DailyTask, MatchResult, Achievement, MatchRecord } from '../types';
 import { INITIAL_PLAYER, DAILY_TASK_TEMPLATES, getLevelXp, GUNS, SHIELDS, ARMORS, DAILY_LOGIN_REWARD, ACHIEVEMENTS } from '../constants';
 import { authService } from './auth';
@@ -7,8 +6,6 @@ import { authService } from './auth';
 class PlayerService {
   
   public initializeState(existingState?: PlayerStats): { player: PlayerStats, rewardClaimed: boolean } {
-    // 1. Try to load from Cloud (Netlify Identity) or LocalStorage through authService
-    // authService now handles the logic of "Best available source"
     const loadedData = authService.getCachedPlayer();
 
     let player: PlayerStats = { ...INITIAL_PLAYER };
@@ -17,14 +14,14 @@ class PlayerService {
         player = {
             ...player,
             ...loadedData,
-            // Re-link item objects from IDs to ensure stats are up to date with game version
+            // Re-link item objects
             gun: GUNS.find(g => g.id === loadedData.gun.id) || GUNS[0],
             shield: SHIELDS.find(s => s.id === loadedData.shield.id) || SHIELDS[0],
             armorItem: ARMORS.find(a => a.id === loadedData.armorItem.id) || ARMORS[0],
             dailyTasks: loadedData.dailyTasks || player.dailyTasks,
             matchHistory: loadedData.matchHistory || [],
-            userSettings: { ...player.userSettings, ...loadedData.userSettings }, // Merge settings
-            matchStats: { damage: 0, kills: 0, deaths: 0, assists: 0, score: 0 } // Reset match stats
+            userSettings: { ...player.userSettings, ...loadedData.userSettings },
+            matchStats: { damage: 0, kills: 0, deaths: 0, assists: 0, score: 0 }
         };
     }
 
@@ -32,36 +29,23 @@ class PlayerService {
         player = { ...player, ...existingState };
     }
     
-    // Ensure ID stability if logged in via auth wrapper
-    const user = authService.getCurrentUser();
-    if (user && user.id) {
-        player.id = user.id;
-        player.username = user.email || player.username;
-    }
-
-    // --- DAILY LOGIC ---
-    // Check if the day has changed since last login
+    // Day check
     let rewardClaimed = false;
     const now = Date.now();
     const lastLogin = new Date(player.lastLogin || 0);
     const today = new Date(now);
     
-    // Reset if it's a different calendar day
     const isSameDay = lastLogin.getDate() === today.getDate() && 
                       lastLogin.getMonth() === today.getMonth() && 
                       lastLogin.getFullYear() === today.getFullYear();
 
     if (!isSameDay) {
-      console.log("New Day Detected: Resetting Missions & Daily Reward");
       player.credits += DAILY_LOGIN_REWARD;
-      player.dailyTasks = this.generateDailyTasks(); // New missions
+      player.dailyTasks = this.generateDailyTasks(); 
       rewardClaimed = true;
     }
     
-    // Update login time
     player.lastLogin = now;
-    
-    // Validate inventory integrity
     player.inventory = [...new Set([...player.inventory, 'g1', 's1', 'a1'])];
 
     this.saveProfile(player);
@@ -70,13 +54,10 @@ class PlayerService {
   }
 
   public saveProfile(player: PlayerStats) {
-    // 1. Save Local (Instant, synchronous, ensuring no data loss on refresh)
+    // Save to session cache
     localStorage.setItem('sos_user_cache', JSON.stringify(player));
-    
-    // 2. Save Cloud (Async, if logged in)
-    if (authService.isAuthenticated()) {
-        authService.saveToCloud(player);
-    }
+    // Save to permanent local "database"
+    authService.saveToCloud(player);
   }
 
   public updateProfile(player: PlayerStats, name: string, avatarBase64?: string): PlayerStats {
@@ -108,7 +89,6 @@ class PlayerService {
       const totalHits = player.totalShotsHit + matchResult.shotsHit;
       const acc = totalShots > 0 ? totalHits / totalShots : 0;
 
-      // Create Match History Record
       const newRecord: MatchRecord = {
           id: Math.random().toString(36).substr(2, 9),
           timestamp: Date.now(),
@@ -126,7 +106,6 @@ class PlayerService {
           mode: mode
       };
       
-      // Keep last 50 matches
       const updatedHistory = [newRecord, ...player.matchHistory].slice(0, 50);
 
       const updatedPlayer = {
@@ -183,7 +162,7 @@ class PlayerService {
       newPlayer.xp -= newPlayer.maxXp;
       newPlayer.level += 1;
       newPlayer.maxXp = getLevelXp(newPlayer.level);
-      newPlayer.credits += 100; // Level up reward
+      newPlayer.credits += 100;
       leveledUp = true;
     }
     

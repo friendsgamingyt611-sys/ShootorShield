@@ -22,7 +22,7 @@ export interface Character {
       name: string;
       description: string;
       type: 'DODGE' | 'MITIGATION' | 'AMMO_SAVER';
-      value: number; // e.g., 0.15 for 15%
+      value: number; 
   };
 }
 
@@ -41,11 +41,10 @@ export interface ItemStats {
   maxCharges?: number; 
   visualType?: string; 
   ability?: ItemAbilityType;
-  abilityChance?: number; // 0-1
-  coordinateTime?: number; // New Factor: Lower is better (seconds)
+  abilityChance?: number; 
+  coordinateTime?: number; 
 }
 
-// --- HISTORY & RECORDS ---
 export interface MatchRecord {
     id: string;
     timestamp: number;
@@ -73,8 +72,6 @@ export interface MatchResult {
   leveledUp: boolean; 
   completedTasks: string[]; 
   victoryReason?: string;
-  
-  // Detailed Stats for this match
   damageDealt: number;
   damageTaken: number;
   shotsFired: number;
@@ -93,7 +90,6 @@ export interface DailyTask {
   type: 'WIN' | 'PLAY' | 'DAMAGE' | 'BLOCK';
 }
 
-// --- ACHIEVEMENT SYSTEM ---
 export type AchievementTier = 'BRONZE' | 'SILVER' | 'GOLD' | 'PLATINUM';
 
 export interface Achievement {
@@ -142,22 +138,18 @@ export interface MatchStats {
 
 export interface PlayerStats {
   id: string; 
-  name: string; // Callsign (Changeable)
-  username: string; // Unique Login ID (Immutable)
+  name: string; 
+  username: string; 
   isBot: boolean;
   teamId: number; 
   isReady: boolean;
   isHost: boolean;
-  
-  // Progression
   level: number; 
   elo: number; 
   xp: number;    
   maxXp: number; 
   credits: number; 
   likes: number; 
-
-  // Detailed Stats (SQL Schema Alignment)
   totalMatchesPlayed: number;
   matchesWon: number;
   matchesLost: number;
@@ -168,52 +160,37 @@ export interface PlayerStats {
   totalShotsFired: number;
   totalShotsHit: number;
   accuracyPercentage: number;
-  
   achievements: PlayerAchievement[];
-  matchHistory: MatchRecord[]; // NEW: Store history
+  matchHistory: MatchRecord[];
   privacySettings: PrivacySettings;
   userSettings: UserSettings;
-
-  // Persistence
   lastLogin?: number;
   inventory: string[]; 
   dailyTasks: DailyTask[];
-  customAvatar?: string; // Base64 string for custom profile picture
-
+  customAvatar?: string; 
   character: Character;
   health: number;
   maxHealth: number;
   armor: number;
   maxArmor: number;
-  
-  // Loadout
   gun: ItemStats;
   shield: ItemStats;
   armorItem: ItemStats;
-  
-  // Combat State (Reset per round)
   ammo: number;
   maxAmmo: number;
   shieldCharges: number;
   maxShieldCharges: number;
-  
-  // Match Tracking (Persists across rounds)
-  matchStats: MatchStats; // NEW: Track stats for current match only
+  matchStats: MatchStats;
   roundsWon: number;
   cumulativeHealth: number; 
   successfulActions: number; 
-  
-  // CLASH SQUAD ECONOMY
   matchCash: number; 
-  
   hasLockedIn?: boolean; 
   matchResult?: MatchResult;
-  
-  // Profile / Social (Runtime only)
   profile?: PlayerProfile;
 }
 
-// --- SOCIAL & PROFILE TYPES ---
+export type RelationshipStatus = 'NONE' | 'FRIEND' | 'PENDING_INCOMING' | 'PENDING_OUTGOING';
 
 export interface PlayerProfile {
     id: string;
@@ -221,33 +198,34 @@ export interface PlayerProfile {
     level: number;
     elo: number;
     avatarId: string;
-    customAvatar?: string; // Base64 string
-    tags: string[]; // e.g., "Rusher", "Tactical"
+    customAvatar?: string; 
+    tags: string[]; 
     stats: {
         matchesPlayed: number;
         winRate: number;
         kdRatio: number;
         headshotRate: number;
     };
-    isFriend: boolean;
+    relationship: RelationshipStatus; // Status relative to the viewer
     status: 'ONLINE' | 'IN_GAME' | 'OFFLINE';
+    social?: {
+        friendsCount: number;
+        mutualsCount: number;
+        topFriends?: Friend[]; // Subset for display
+    }
 }
 
 export interface Friend {
     id: string;
     name: string;
     level: number;
-    status: 'ONLINE' | 'IN_GAME' | 'OFFLINE';
+    status: 'ONLINE' | 'IN_GAME' | 'OFFLINE' | 'LOBBY';
+    relationship: RelationshipStatus;
     lastSeen: number;
     avatarId: string;
     customAvatar?: string;
-}
-
-export interface FriendRequest {
-    id: string;
-    fromId: string;
-    fromName: string;
-    timestamp: number;
+    username?: string; // Needed for P2P lookups
+    currentLobby?: string; // If status is LOBBY
 }
 
 export interface GameState {
@@ -256,41 +234,30 @@ export interface GameState {
   timeFormat: TimeFormat; 
   turnDuration: number; 
   isPublic: boolean; 
-  
   phase: 'AUTH' | 'MAIN_MENU' | 'MULTIPLAYER_LOBBY' | 'LOBBY_ROOM' | 'CHARACTER_SELECT' | 'COMBAT' | 'SHOP' | 'GAMEOVER' | 'VICTORY' | 'MATCH_HISTORY' | 'POST_MATCH';
   combatSubPhase: CombatSubPhase; 
   mode: GameMode;
   matchType: MatchType;
   customTeamSize?: number; 
-
   roomCode?: string;
   turnLog: TurnResult[];
-  
-  // New Multiplayer State
   myId: string;
   players: PlayerStats[]; 
   matchups: Record<string, string>; 
   startTimer: number; 
-  
   player: PlayerStats;
   opponent: PlayerStats;
-
   lastAction?: ActionType; 
   opponentLastAction?: ActionType; 
   isProcessing: boolean;
   isConnected: boolean;
   isHost: boolean;
-
   matchResult?: MatchResult;
   victoryReason?: string;
-  winnerTeam?: number; // 1 or 2
-  
-  // Social UI State
+  winnerTeam?: number; 
   inspectingPlayer?: PlayerProfile | null;
   isSocialOpen: boolean;
   isSettingsOpen: boolean;
-  
-  // UI Feedback
   newUnlock?: Achievement;
 }
 
@@ -303,14 +270,14 @@ export interface TurnResult {
   opponentDamageTaken: number;
   playerPenaltyTaken: number;
   opponentPenaltyTaken: number;
-  playerIntensity?: number; // How many shots fired
+  playerIntensity?: number; 
   opponentIntensity?: number;
-  specialEvents?: string[]; // "Critical Hit!", "Blocked!"
+  specialEvents?: string[]; 
 }
 
 export interface AIResponse {
   action: ActionType;
-  intensity?: number; // 1 to Max Ammo
+  intensity?: number; 
   thoughtProcess: string; 
   taunt: string;
 }
@@ -332,7 +299,12 @@ export interface ChatMessage {
   }; 
 }
 
-export type PacketType = 'HANDSHAKE' | 'LOBBY_UPDATE' | 'PLAYER_READY' | 'START_GAME' | 'COMMIT_MOVE' | 'CHAT' | 'KICK' | 'GAME_STATE_SYNC' | 'GAME_EVENT' | 'SWITCH_TEAM' | 'LOBBY_SETTINGS' | 'LOBBY_CLOSED' | 'LEAVE' | 'MATCH_BUY' | 'LOOT_REQUEST' | 'FRIEND_REQUEST' | 'INVITE_LOBBY' | 'RETURN_TO_LOBBY';
+export type PacketType = 
+    'HANDSHAKE' | 'LOBBY_UPDATE' | 'PLAYER_READY' | 'START_GAME' | 'COMMIT_MOVE' | 'CHAT' | 'KICK' | 
+    'GAME_STATE_SYNC' | 'GAME_EVENT' | 'SWITCH_TEAM' | 'LOBBY_SETTINGS' | 'LOBBY_CLOSED' | 'LEAVE' | 
+    'MATCH_BUY' | 'LOOT_REQUEST' | 'INVITE_LOBBY' | 'RETURN_TO_LOBBY' | 'SOCIAL_STATUS' |
+    'FRIEND_REQUEST' | 'FRIEND_ACCEPT' | 'FRIEND_DECLINE' | 'FRIEND_REMOVE' |
+    'SOCIAL_GRAPH_REQUEST' | 'SOCIAL_GRAPH_RESPONSE';
 
 export interface NetworkPacket {
   type: PacketType;
@@ -346,13 +318,13 @@ export interface HandshakePayload {
   character: Character;
   level: number;
   elo: number;
-  profile?: PlayerProfile; // Send full profile on handshake
+  profile?: PlayerProfile; 
 }
 
 export interface MovePayload {
   action: ActionType;
   round: number;
-  intensity?: number; // Burst Fire amount
+  intensity?: number; 
 }
 
 export interface LobbyUpdatePayload {

@@ -1,8 +1,10 @@
 
 import React, { useState } from 'react';
 import { PlayerStats, MatchResult } from '../../types';
-import { Trophy, ThumbsUp, Home, ArrowRight, Share2, Target, Skull, Crown } from 'lucide-react';
+import { Trophy, ThumbsUp, Home, ArrowRight, Share2, Target, Skull, Crown, UserPlus, Check } from 'lucide-react';
 import { GameCard } from '../GameCard';
+import { NetworkService } from '../../services/network';
+import { socialService } from '../../services/socialService';
 
 interface PostMatchScreenProps {
     players: PlayerStats[];
@@ -23,14 +25,23 @@ export const PostMatchScreen: React.FC<PostMatchScreenProps> = ({
     const mvp = sortedPlayers[0];
     const isWinner = players.find(p => p.id === myId)?.teamId === winnerTeam;
     
-    // Track who we liked locally to disable button
+    // Track who we liked/added locally
     const [likedIds, setLikedIds] = useState<Set<string>>(new Set());
+    const [addedIds, setAddedIds] = useState<Set<string>>(new Set());
 
     const handleLike = (id: string) => {
         if (likedIds.has(id)) return;
         onLike(id);
         setLikedIds(prev => new Set(prev).add(id));
     };
+
+    const handleAddFriend = (p: PlayerStats) => {
+        if (addedIds.has(p.id)) return;
+        NetworkService.sendFriendRequest(p.id);
+        setAddedIds(prev => new Set(prev).add(p.id));
+    };
+
+    const isFriend = (id: string) => socialService.getRelationship(id) !== 'NONE';
 
     return (
         <div className="fixed inset-0 bg-black z-50 flex flex-col overflow-hidden animate-in fade-in duration-1000">
@@ -89,7 +100,9 @@ export const PostMatchScreen: React.FC<PostMatchScreenProps> = ({
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-800 text-xs font-mono">
-                            {sortedPlayers.map((p) => (
+                            {sortedPlayers.map((p) => {
+                                const alreadyFriend = isFriend(p.id);
+                                return (
                                 <tr key={p.id} className={`hover:bg-white/5 transition-colors ${p.id === myId ? 'bg-blue-900/10' : ''}`}>
                                     <td className="p-3">
                                         <div className="flex items-center gap-2">
@@ -104,19 +117,33 @@ export const PostMatchScreen: React.FC<PostMatchScreenProps> = ({
                                         {p.matchStats.damage}
                                     </td>
                                     <td className="p-3 text-right">
-                                        {p.id !== myId && (
-                                            <button 
-                                                onClick={() => handleLike(p.id)}
-                                                disabled={likedIds.has(p.id)}
-                                                className={`p-2 rounded-full transition-all ${likedIds.has(p.id) ? 'bg-yellow-600 text-black' : 'bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700'}`}
-                                            >
-                                                <ThumbsUp size={14} fill={likedIds.has(p.id) ? "currentColor" : "none"} />
-                                            </button>
-                                        )}
-                                        {p.id === myId && <span className="text-[10px] text-gray-600 italic">YOU</span>}
+                                        <div className="flex items-center justify-end gap-2">
+                                            {p.id !== myId && (
+                                                <>
+                                                    <button 
+                                                        onClick={() => handleLike(p.id)}
+                                                        disabled={likedIds.has(p.id)}
+                                                        className={`p-2 rounded-full transition-all ${likedIds.has(p.id) ? 'bg-yellow-600 text-black' : 'bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700'}`}
+                                                    >
+                                                        <ThumbsUp size={14} fill={likedIds.has(p.id) ? "currentColor" : "none"} />
+                                                    </button>
+                                                    
+                                                    {!alreadyFriend && !p.isBot && (
+                                                        <button
+                                                            onClick={() => handleAddFriend(p)}
+                                                            disabled={addedIds.has(p.id)}
+                                                            className={`p-2 rounded-full transition-all ${addedIds.has(p.id) ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700'}`}
+                                                        >
+                                                            {addedIds.has(p.id) ? <Check size={14}/> : <UserPlus size={14}/>}
+                                                        </button>
+                                                    )}
+                                                </>
+                                            )}
+                                            {p.id === myId && <span className="text-[10px] text-gray-600 italic">YOU</span>}
+                                        </div>
                                     </td>
                                 </tr>
-                            ))}
+                            )})}
                         </tbody>
                     </table>
                 </div>

@@ -1,6 +1,7 @@
 
 import { PlayerStats, AuthResponse } from "../types";
-import { authService, dataService } from "./firebase";
+import { authService } from "./auth";
+import { playerService } from "./playerService";
 
 // This service now acts as a bridge to the Firebase Plugin
 // Keeping the same method signatures so the rest of the app doesn't break
@@ -19,14 +20,14 @@ export class CloudService {
         const player = authService.getCachedPlayer();
         if (player) {
             player.name = newCallsign;
-            await dataService.saveProfile(player);
+            await playerService.saveProfile(player);
             return true;
         }
         return false;
     }
 
     public async syncProfile(player: PlayerStats, token: string): Promise<boolean> {
-        await dataService.saveProfile(player);
+        await playerService.saveProfile(player);
         return true;
     }
 

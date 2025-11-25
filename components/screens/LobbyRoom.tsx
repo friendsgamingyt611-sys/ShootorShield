@@ -65,10 +65,11 @@ export const LobbyRoom: React.FC<ExtendedLobbyRoomProps> = ({
           return;
       }
       if (player) {
-          if (isHost) {
-              setSelectedPlayerId(player.id === selectedPlayerId ? null : player.id);
+          // If clicking own slot or if is host selecting for move
+          if (isHost && player.id !== myId) {
+             setSelectedPlayerId(player.id === selectedPlayerId ? null : player.id);
           } else {
-              // If not host, clicking inspects
+              // Inspect Logic
               const profile = player.profile || socialService.getProfileFor(player);
               onInspect(profile);
           }
@@ -99,11 +100,9 @@ export const LobbyRoom: React.FC<ExtendedLobbyRoomProps> = ({
         {player ? (
             <>
                 {/* Inspect Icon hover */}
-                {!isHost && (
-                    <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-black/60 p-1 rounded text-blue-400">
-                        <Eye size={14}/>
-                    </div>
-                )}
+                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-black/60 p-1 rounded text-blue-400">
+                    <Eye size={14}/>
+                </div>
 
                 <div className={`w-10 h-10 md:w-12 md:h-12 rounded-full mb-2 flex items-center justify-center shadow-lg relative z-10 border-2 ${player.isReady ? 'border-green-500 bg-green-500 text-black' : 'border-gray-600 bg-gray-700 text-gray-300'}`}>
                     {player.isBot ? <Cpu size={20} /> : <User size={20} />}
@@ -120,7 +119,7 @@ export const LobbyRoom: React.FC<ExtendedLobbyRoomProps> = ({
                 {player.isHost && <div className="absolute top-2 left-2 text-[8px] bg-yellow-600 text-black px-1.5 py-0.5 rounded font-bold shadow-lg">HOST</div>}
                 
                 {isHost && player.id !== myId && (
-                    <button onClick={(e) => { e.stopPropagation(); onKickPlayer(player.id); }} className="absolute top-2 right-2 text-red-500 hover:text-white p-1 hover:bg-red-600 rounded"><Trash2 size={14} /></button>
+                    <button onClick={(e) => { e.stopPropagation(); onKickPlayer(player.id); }} className="absolute bottom-2 right-2 text-red-500 hover:text-white p-1 hover:bg-red-600 rounded z-20"><Trash2 size={14} /></button>
                 )}
                 
                 {isSelected && isHost && (

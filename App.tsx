@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect } from 'react';
 import { useGameEngine } from './hooks/useGameEngine';
 import { Header } from './components/layout/Header';
@@ -24,6 +23,7 @@ import { Users, Settings } from 'lucide-react';
 import { socialService } from './services/socialService';
 import { authService } from './services/auth';
 import { playerService } from './services/playerService';
+import { NetworkService } from './services/network';
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -31,16 +31,23 @@ function App() {
 
   // Check for existing session on mount
   useEffect(() => {
-    // Check local persistence first
     const cached = authService.getCachedPlayer();
     if (cached) {
          const { player } = playerService.initializeState(cached);
          setInitialPlayer(player);
          setIsAuthenticated(true);
+         // Initialize P2P Network immediately on login
+         NetworkService.initialize(player.username);
     }
   }, []);
 
   const { gameState, uiState, chatState, actions } = useGameEngine(initialPlayer);
+
+  const handleAuthSuccess = (player: PlayerStats) => {
+      setInitialPlayer(player);
+      setIsAuthenticated(true);
+      NetworkService.initialize(player.username);
+  };
 
   const handleCombatAction = (type: ActionType | string) => {
       if (typeof type === 'string') {
@@ -75,7 +82,7 @@ function App() {
   };
 
   if (!isAuthenticated) {
-      return <AuthScreen onAuthSuccess={(player) => { setInitialPlayer(player); setIsAuthenticated(true); }} />;
+      return <AuthScreen onAuthSuccess={handleAuthSuccess} />;
   }
 
   return (
@@ -113,8 +120,17 @@ function App() {
             {gameState.phase === 'MAIN_MENU' && (
             <MainMenu 
                 onSelectMode={(mode) => {
-                    if (mode === 'MATCH_HISTORY') actions.setPhase('MATCH_HISTORY');
-                    else actions.setMode(mode as any);
+                    if (mode === 'MATCH_HISTORY') {
+                        actions.setPhase('MATCH_HISTORY');
+                    } else {
+                        actions.setMode(mode as any);
+                        // If multiplayer, go to Friend Lobby, if solo, go to Char select
+                        if (mode === 'MULTIPLAYER') {
+                            actions.setPhase('MULTIPLAYER_LOBBY');
+                        } else {
+                            actions.setPhase('CHARACTER_SELECT');
+                        }
+                    }
                 }} 
                 player={gameState.player}
                 dailyRewardClaimed={uiState.dailyRewardClaimed}
@@ -132,6 +148,7 @@ function App() {
             onCreateRoom={actions.handleCreateRoom}
             onJoinRoom={actions.handleJoinRoom}
             isConnecting={gameState.isProcessing}
+            playerUsername={gameState.player.username}
           />
         )}
 

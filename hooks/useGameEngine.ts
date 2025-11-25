@@ -1,5 +1,4 @@
 
-
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   ActionType, 
@@ -29,33 +28,25 @@ import {
   TIME_CONTROLS,
   DEFAULT_TIME_FORMAT,
   CHARACTERS,
-  LOBBY_COUNTDOWN_DURATION,
-  INTRO_DURATION,
-  RESOLUTION_DELAY,
   PREPARATION_DURATION,
   DEFAULT_MAX_ROUNDS,
-  K_FACTOR,
-  STARTING_ELO,
   getRankTitle,
   getLevelXp,
   WIN_REWARD,
   XP_PER_WIN,
   XP_PER_LOSS,
-  TIMEOUT_PENALTY,
   MATCH_STARTING_CASH,
   ROUND_WIN_CASH,
   ROUND_LOSS_CASH,
   SURVIVAL_BONUS,
-  KILL_BONUS,
   SHOPPING_DURATION,
-  GUNS,
-  SHIELDS,
-  ARMORS
+  RESOLUTION_DELAY
 } from '../constants';
 import { getAIMove } from '../services/geminiService';
 import { NetworkService } from '../services/network';
 import { playerService } from '../services/playerService';
 import { socialService } from '../services/socialService';
+import { lobbyService } from '../services/lobbyService';
 
 export const useGameEngine = (initialPlayer?: PlayerStats) => {
   const [gameState, setGameState] = useState<GameState>({
@@ -63,7 +54,7 @@ export const useGameEngine = (initialPlayer?: PlayerStats) => {
     maxRounds: DEFAULT_MAX_ROUNDS,
     timeFormat: DEFAULT_TIME_FORMAT,
     turnDuration: TIME_CONTROLS[DEFAULT_TIME_FORMAT],
-    isPublic: false,
+    isPublic: true, // Default to public
     phase: 'MAIN_MENU',
     combatSubPhase: 'INTRO',
     mode: 'SOLO',
@@ -83,6 +74,9 @@ export const useGameEngine = (initialPlayer?: PlayerStats) => {
   });
 
   const gameStateRef = useRef(gameState);
+  // Banned IDs (Session based)
+  const bannedIdsRef = useRef<Set<string>>(new Set());
+
   useEffect(() => { gameStateRef.current = gameState; }, [gameState]);
 
   const launchTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -130,8 +124,12 @@ export const useGameEngine = (initialPlayer?: PlayerStats) => {
           setGameState(prev => ({ ...prev, roomCode: roomParam, mode: 'MULTIPLAYER', phase: 'MULTIPLAYER_LOBBY' }));
       }
 
+      // Cleanup on unmount (leave game)
       return () => {
           cleanupTimers();
+          if (gameStateRef.current.isConnected) {
+              handleLeaveGame(true);
+          }
       };
   }, [initialPlayer]);
 
@@ -166,6 +164,11 @@ export const useGameEngine = (initialPlayer?: PlayerStats) => {
     NetworkService.broadcast('LOBBY_UPDATE', { 
       players, matchType: gameStateRef.current.matchType, startTimer: gameStateRef.current.startTimer, maxRounds: gameStateRef.current.maxRounds, timeFormat: gameStateRef.current.timeFormat, isPublic: gameStateRef.current.isPublic, customTeamSize: gameStateRef.current.customTeamSize
     });
+    
+    // Update global server list count
+    if (gameStateRef.current.isHost && gameStateRef.current.roomCode) {
+        lobbyService.updateLobbyCount(gameStateRef.current.roomCode, players.length);
+    }
   };
 
   const broadcastSync = (state: GameState, players: PlayerStats[], message: string) => {
@@ -183,6 +186,12 @@ export const useGameEngine = (initialPlayer?: PlayerStats) => {
   const handlePlayerDisconnect = (peerId: string) => {
       if (gameStateRef.current.isHost) {
            setGameState(prev => {
+               // Find the player leaving to notify
+               const leavingPlayer = prev.players.find(p => p.id === peerId); // Note: Assuming PeerID matches ID for now, or need mapping
+               
+               // Actually, in the handshake we used peerID as ID. 
+               // In a rejoin scenario we might map AuthID -> PeerID, but keeping it simple for now.
+               
                const updatedPlayers = prev.players.filter(p => p.id !== peerId);
                broadcastLobbyUpdate(updatedPlayers);
                return { ...prev, players: updatedPlayers };
@@ -276,7 +285,7 @@ export const useGameEngine = (initialPlayer?: PlayerStats) => {
           const hostPlayer = { 
               ...INITIAL_PLAYER, 
               ...player, 
-              id: id, 
+              id: id, // Mapping Host PeerID to Player ID for connection routing
               isHost: true, 
               isReady: false, 
               teamId: 1, 
@@ -287,6 +296,16 @@ export const useGameEngine = (initialPlayer?: PlayerStats) => {
               matchStats: { damage: 0, kills: 0, deaths: 0, assists: 0, score: 0 }
           };
           
+          // Register in Global Server List
+          await lobbyService.registerLobby(
+              id, 
+              player.name, 
+              '1v1', // Default
+              2, // Default max
+              player.userSettings?.region || 'NA-EAST',
+              false // Not locked by default
+          );
+
           setGameState(prev => ({
               ...prev,
               phase: 'LOBBY_ROOM',
@@ -297,12 +316,17 @@ export const useGameEngine = (initialPlayer?: PlayerStats) => {
               players: [hostPlayer],
               player: hostPlayer,
               isConnected: true,
-              isProcessing: false
+              isProcessing: false,
+              matchType: '1v1',
+              isPublic: true
           }));
+          
+          bannedIdsRef.current.clear();
+
       } catch (e) {
           console.error(e);
           setGameState(prev => ({ ...prev, isProcessing: false }));
-          alert("Failed to create room");
+          alert("Failed to create room: " + (e as any).message);
       }
   };
 
@@ -314,7 +338,7 @@ export const useGameEngine = (initialPlayer?: PlayerStats) => {
           if (connected) {
               const { player } = playerService.initializeState(gameState.player);
               NetworkService.sendTo(code, 'HANDSHAKE', {
-                  id: NetworkService.myPeerId,
+                  id: NetworkService.myPeerId, // My Connection ID
                   name: player.name,
                   character: player.character,
                   level: player.level,
@@ -357,8 +381,23 @@ export const useGameEngine = (initialPlayer?: PlayerStats) => {
       }));
   };
 
-  const handleChangeMatchType = (type: MatchType) => {
+  const handleChangeMatchType = async (type: MatchType) => {
       if (!gameState.isHost) return;
+      
+      const maxPlayers = type === 'CUSTOM' ? (gameState.customTeamSize || 2) * 2 : parseInt(type[0]) * 2;
+      
+      // Update Global List
+      if (gameState.roomCode) {
+          await lobbyService.registerLobby(
+              gameState.roomCode,
+              gameState.player.name,
+              type,
+              maxPlayers,
+              gameState.player.userSettings?.region || 'NA-EAST',
+              !gameState.isPublic
+          );
+      }
+
       setGameState(prev => {
           const next = { ...prev, matchType: type };
           broadcastLobbyUpdate(next.players);
@@ -371,6 +410,19 @@ export const useGameEngine = (initialPlayer?: PlayerStats) => {
        setGameState(prev => {
            const next = { ...prev, [key]: val };
            if (key === 'timeFormat') next.turnDuration = TIME_CONTROLS[val as TimeFormat];
+           
+           if (key === 'isPublic' && next.roomCode) {
+               // Update global listing privacy
+                lobbyService.registerLobby(
+                    next.roomCode,
+                    next.player.name,
+                    next.matchType,
+                    next.matchType === 'CUSTOM' ? (next.customTeamSize || 2) * 2 : parseInt(next.matchType[0]) * 2,
+                    next.player.userSettings?.region || 'NA-EAST',
+                    !val
+                );
+           }
+           
            broadcastLobbyUpdate(next.players);
            return next;
        });
@@ -378,6 +430,10 @@ export const useGameEngine = (initialPlayer?: PlayerStats) => {
 
   const handleKick = (id: string) => {
       if (!gameState.isHost) return;
+      
+      // Add to ban list
+      bannedIdsRef.current.add(id);
+      
       NetworkService.sendTo(id, 'KICK', {});
       setGameState(prev => {
           const nextPlayers = prev.players.filter(p => p.id !== id);
@@ -401,6 +457,11 @@ export const useGameEngine = (initialPlayer?: PlayerStats) => {
 
   const handleStartGame = () => {
       if (!gameState.isHost) return;
+      
+      // Remove from global list so no one joins mid-game
+      if (gameState.roomCode) {
+          lobbyService.removeLobby(gameState.roomCode);
+      }
       
       const maxSlots = gameState.matchType === 'CUSTOM' ? (gameState.customTeamSize || 2) * 2 : parseInt(gameState.matchType[0]) * 2;
       let currentPlayers = [...gameState.players];
@@ -474,6 +535,18 @@ export const useGameEngine = (initialPlayer?: PlayerStats) => {
 
       if (gameState.mode === 'MULTIPLAYER') {
           if (gameState.isHost) {
+               // Re-register lobby since game ended
+               if (gameState.roomCode) {
+                   lobbyService.registerLobby(
+                        gameState.roomCode,
+                        gameState.player.name,
+                        gameState.matchType,
+                        gameState.matchType === 'CUSTOM' ? (gameState.customTeamSize || 2) * 2 : parseInt(gameState.matchType[0]) * 2,
+                        gameState.player.userSettings?.region || 'NA-EAST',
+                        !gameState.isPublic
+                   );
+               }
+
                NetworkService.broadcast('RETURN_TO_LOBBY', { players: resetPlayers });
                setGameState(prev => ({ ...prev, phase: 'LOBBY_ROOM', players: resetPlayers, round: 1, turnLog: [] }));
           }
@@ -483,6 +556,11 @@ export const useGameEngine = (initialPlayer?: PlayerStats) => {
   };
 
   const handleLeaveGame = (force: boolean = false) => {
+      // If host leaving, remove lobby from global list
+      if (gameStateRef.current.isHost && gameStateRef.current.roomCode) {
+          lobbyService.removeLobby(gameStateRef.current.roomCode);
+      }
+
       if (gameState.isConnected) {
           NetworkService.sendTo(gameState.roomCode || '', 'LEAVE', {});
           NetworkService.disconnect();
@@ -535,7 +613,7 @@ export const useGameEngine = (initialPlayer?: PlayerStats) => {
 
       introTimeoutRef.current = setTimeout(() => {
           startShoppingPhase(players);
-      }, INTRO_DURATION * 1000);
+      }, 2000); // Intro Duration
   };
   
   const startShoppingPhase = (players: PlayerStats[]) => {
@@ -1080,6 +1158,14 @@ export const useGameEngine = (initialPlayer?: PlayerStats) => {
               case 'HANDSHAKE':
                   const p = packet.payload as HandshakePayload;
                   if (gameStateRef.current.isHost) {
+                      
+                      // BANNED CHECK
+                      if (bannedIdsRef.current.has(p.id)) {
+                          NetworkService.sendTo(senderId, 'KICK', {}); // Actually send kick message
+                          // Close conn logic handled in network service if needed, or user receives kick and leaves
+                          return;
+                      }
+
                       setGameState(prev => {
                           if (prev.players.find(pl => pl.id === p.id)) return prev;
                           

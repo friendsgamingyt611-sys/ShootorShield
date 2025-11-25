@@ -1,12 +1,15 @@
 
-import React, { useState, useRef } from 'react';
-import { PlayerProfile } from '../../types';
-import { X, UserPlus, MessageCircle, Trophy, Target, Crosshair, Shield, Camera, Edit2, Save } from 'lucide-react';
+
+import React, { useState, useRef, useEffect } from 'react';
+import { PlayerProfile, Friend } from '../../types';
+import { X, UserPlus, MessageCircle, Trophy, Target, Crosshair, Shield, Camera, Edit2, Save, Users, Share2, Check, Clock } from 'lucide-react';
 import { getRankTitle } from '../../constants';
+import { socialService } from '../../services/socialService';
+import { NetworkService } from '../../services/network';
 
 interface PlayerInspectorProps {
     profile: PlayerProfile | null;
-    isSelf: boolean; // New prop to indicate if inspecting self
+    isSelf: boolean;
     onClose: () => void;
     onAddFriend: (profile: PlayerProfile) => void;
     onUpdateProfile?: (name: string, avatar: string) => void;
@@ -15,11 +18,36 @@ interface PlayerInspectorProps {
 export const PlayerInspector: React.FC<PlayerInspectorProps> = ({ profile, isSelf, onClose, onAddFriend, onUpdateProfile }) => {
     const [editMode, setEditMode] = useState(false);
     const [newName, setNewName] = useState('');
+    const [networkFriends, setNetworkFriends] = useState<Friend[]>([]); // Friends of the inspected user
+    const [loadingGraph, setLoadingGraph] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
+
+    // Fetch Social Graph when opening inspection of another player
+    useEffect(() => {
+        if (profile && !isSelf && profile.status !== 'OFFLINE') {
+            setLoadingGraph(true);
+            NetworkService.requestSocialGraph(profile.id);
+            
+            // Listen for response (simplistic hook)
+            const handleData = (packet: any, senderId: string) => {
+                if (senderId === profile.id && packet.type === 'SOCIAL_GRAPH_RESPONSE') {
+                    setNetworkFriends(packet.payload.friends);
+                    setLoadingGraph(false);
+                }
+            };
+            NetworkService.onData(handleData);
+            
+            // Timeout safety
+            const timer = setTimeout(() => setLoadingGraph(false), 3000);
+            return () => { clearTimeout(timer); };
+        }
+    }, [profile?.id]);
 
     if (!profile) return null;
 
     const rank = getRankTitle(profile.elo);
+    const relationship = socialService.getRelationship(profile.id);
+    const mutualsCount = socialService.calculateMutuals(socialService.getConfirmedFriends(), networkFriends.map(f => f.id));
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -45,12 +73,17 @@ export const PlayerInspector: React.FC<PlayerInspectorProps> = ({ profile, isSel
         setNewName(profile.name);
         setEditMode(true);
     };
+    
+    const sendFriendRequest = () => {
+        NetworkService.sendFriendRequest(profile.id);
+        onAddFriend(profile); // Updates local state
+    };
 
     return (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in zoom-in duration-200">
-            <div className="bg-gray-900 w-full max-w-md rounded-2xl border border-gray-700 overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.5)]">
+            <div className="bg-gray-900 w-full max-w-md rounded-2xl border border-gray-700 overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.5)] flex flex-col max-h-[90vh]">
                 {/* Header / Cover */}
-                <div className="h-24 bg-gradient-to-r from-blue-900 to-purple-900 relative">
+                <div className="h-24 bg-gradient-to-r from-blue-900 to-purple-900 relative shrink-0">
                     <button onClick={onClose} className="absolute top-2 right-2 p-2 bg-black/40 hover:bg-black/60 rounded-full text-white z-10"><X size={16}/></button>
                     
                     {/* Avatar Section */}
@@ -76,7 +109,7 @@ export const PlayerInspector: React.FC<PlayerInspectorProps> = ({ profile, isSel
                     </div>
                 </div>
 
-                <div className="pt-12 px-6 pb-6">
+                <div className="pt-12 px-6 pb-6 overflow-y-auto">
                     {/* Identity */}
                     <div className="flex justify-between items-start mb-6">
                         <div className="flex-1 mr-4">
@@ -106,13 +139,28 @@ export const PlayerInspector: React.FC<PlayerInspectorProps> = ({ profile, isSel
                                 <span className={`text-xs font-mono px-2 py-0.5 rounded bg-gray-800 border border-gray-700 ${rank.color}`}>{rank.title}</span>
                                 <span className="text-xs text-gray-500">LVL {profile.level}</span>
                             </div>
+                            
+                            {!isSelf && (
+                                <div className="mt-2 text-[10px] text-gray-400 font-mono flex items-center gap-2">
+                                    <Users size={12}/> {loadingGraph ? "Scanning Network..." : `${networkFriends.length} Connections`} 
+                                    {mutualsCount > 0 && <span className="text-blue-400">({mutualsCount} Mutual)</span>}
+                                </div>
+                            )}
                         </div>
                         <div className="flex gap-2">
-                            {!isSelf && !profile.isFriend && (
-                                <button onClick={() => onAddFriend(profile)} className="p-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-white shadow-lg"><UserPlus size={20}/></button>
-                            )}
                             {!isSelf && (
-                                <button className="p-2 bg-gray-800 hover:bg-gray-700 rounded-lg text-gray-400"><MessageCircle size={20}/></button>
+                                <>
+                                    {relationship === 'NONE' && (
+                                        <button onClick={sendFriendRequest} className="p-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-white shadow-lg" title="Send Friend Request"><UserPlus size={20}/></button>
+                                    )}
+                                    {relationship === 'PENDING_OUTGOING' && (
+                                        <button className="p-2 bg-gray-700 rounded-lg text-white cursor-default" title="Request Sent"><Clock size={20}/></button>
+                                    )}
+                                    {relationship === 'FRIEND' && (
+                                        <button className="p-2 bg-green-600 rounded-lg text-white cursor-default" title="Friends"><Check size={20}/></button>
+                                    )}
+                                    <button className="p-2 bg-gray-800 hover:bg-gray-700 rounded-lg text-gray-400"><MessageCircle size={20}/></button>
+                                </>
                             )}
                         </div>
                     </div>
@@ -143,6 +191,25 @@ export const PlayerInspector: React.FC<PlayerInspectorProps> = ({ profile, isSel
                              <div className="text-2xl font-mono text-blue-500">{profile.stats.matchesPlayed}</div>
                          </div>
                     </div>
+                    
+                    {/* Social Graph / Friends of Friends */}
+                    {!isSelf && networkFriends.length > 0 && (
+                        <div className="mb-6">
+                             <h3 className="text-xs font-bold text-gray-500 mb-2 flex items-center gap-2">
+                                 <Share2 size={12}/> NETWORK ({networkFriends.length})
+                             </h3>
+                             <div className="flex gap-2 overflow-x-auto pb-2">
+                                 {networkFriends.slice(0, 10).map((f, i) => (
+                                     <div key={i} className="flex flex-col items-center min-w-[50px]">
+                                         <div className="w-10 h-10 rounded-full bg-gray-700 border border-gray-600 flex items-center justify-center text-[10px] overflow-hidden">
+                                             {f.name[0]}
+                                         </div>
+                                         <div className="text-[9px] text-gray-400 mt-1 truncate w-full text-center">{f.name}</div>
+                                     </div>
+                                 ))}
+                             </div>
+                        </div>
+                    )}
 
                     {/* ID Footer */}
                     <div className="text-center text-[10px] text-gray-600 font-mono bg-gray-950 p-2 rounded">
