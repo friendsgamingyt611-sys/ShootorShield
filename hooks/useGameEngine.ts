@@ -19,7 +19,8 @@ import {
   TimeFormat,
   ItemStats,
   MatchResult,
-  PlayerProfile
+  PlayerProfile,
+  Achievement
 } from '../types';
 import { 
   INITIAL_PLAYER, 
@@ -894,7 +895,7 @@ export const useGameEngine = (initialPlayer?: PlayerStats) => {
       const won = myPlayer?.teamId === winnerTeam;
       
       let result: MatchResult | undefined;
-      let newUnlock;
+      let newUnlock: Achievement | undefined;
       
       if (myPlayer && !myPlayer.isBot) {
           const xp = won ? XP_PER_WIN : XP_PER_LOSS;
