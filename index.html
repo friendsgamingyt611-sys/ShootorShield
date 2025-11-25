@@ -1,10 +1,10 @@
-
 <!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Shoot or Shield</title>
+    <!-- Tailwind via CDN for runtime simplicity, though package.json supports build-time too -->
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
       @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&family=Rajdhani:wght@300;400;600&display=swap');
@@ -65,8 +65,6 @@
       }
 
       /* Character Animations */
-      
-      /* Standard Servo Idle */
       @keyframes mech-breathe {
         0%, 100% { transform: translateY(0); }
         50% { transform: translateY(-3px); }
@@ -95,8 +93,6 @@
       }
 
       /* Role Specific Animations */
-      
-      /* Spectre: Stealth Shimmer */
       @keyframes glitch-anim {
         0% { opacity: 1; transform: translateX(0) skew(0); }
         92% { opacity: 1; transform: translateX(0) skew(0); }
@@ -111,7 +107,6 @@
         animation: glitch-anim 3s infinite;
       }
 
-      /* Vanguard: Heavy Hydraulic Breathing */
       @keyframes heavy-idle {
         0%, 100% { transform: translateY(0) scaleY(1); }
         50% { transform: translateY(1px) scaleY(0.98); }
@@ -120,7 +115,6 @@
         animation: heavy-idle 5s ease-in-out infinite;
       }
 
-      /* Neon: Tech Pulse */
       @keyframes tech-pulse {
         0%, 100% { filter: drop-shadow(0 0 2px rgba(168, 85, 247, 0.4)); opacity: 0.9; }
         50% { filter: drop-shadow(0 0 8px rgba(168, 85, 247, 0.8)); opacity: 1; }
@@ -128,25 +122,27 @@
       .animate-tech {
         animation: tech-pulse 2s ease-in-out infinite;
       }
-
     </style>
   <script type="importmap">
 {
   "imports": {
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
     "react/": "https://aistudiocdn.com/react@^19.2.0/",
     "react": "https://aistudiocdn.com/react@^19.2.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
     "lucide-react": "https://aistudiocdn.com/lucide-react@^0.554.0",
-    "peerjs": "https://esm.sh/peerjs@1.5.4?bundle-deps",
-    "buffer": "https://aistudiocdn.com/buffer@^6.0.3",
+    "peerjs": "https://aistudiocdn.com/peerjs@^1.5.5",
+    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.1.1",
     "pg": "https://aistudiocdn.com/pg@^8.16.3",
-    "firebase/": "https://aistudiocdn.com/firebase@^12.6.0/"
+    "firebase/": "https://aistudiocdn.com/firebase@^12.6.0/",
+    "buffer": "https://aistudiocdn.com/buffer@^6.0.3",
+    "vite": "https://aistudiocdn.com/vite@^7.2.4"
   }
 }
 </script>
 </head>
   <body>
     <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
   </body>
 </html>

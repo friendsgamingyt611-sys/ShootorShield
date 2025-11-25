@@ -1,35 +1,32 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { Shield, Play, LogIn, Globe } from 'lucide-react';
-import { authService } from '../../services/auth';
 import { PlayerStats } from '../../types';
 import { playerService } from '../../services/playerService';
-
-declare global {
-    interface Window {
-        netlifyIdentity: any;
-    }
-}
+import { AuthModal } from '../ui/AuthModal';
 
 interface AuthScreenProps {
     onAuthSuccess: (player: PlayerStats) => void;
 }
 
 export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess }) => {
-    
-    useEffect(() => {
-        // Listen for Netlify Identity login event
-        if (window.netlifyIdentity) {
-            window.netlifyIdentity.on('login', (user: any) => {
-                window.netlifyIdentity.close();
-                // Initialize player with cloud data
-                const { player } = playerService.initializeState();
-                onAuthSuccess(player);
-            });
+    const [showAuthModal, setShowAuthModal] = useState(false);
+
+    const handleLoginSuccess = (authData: any) => {
+        // AuthData might be the full firebase response or our mock response
+        // In both cases, playerService handles initialization logic better
+        // We use the player object returned from our auth wrapper
+        if (authData.player) {
+            // Merge with local state to be safe
+            const { player } = playerService.initializeState(authData.player);
+            onAuthSuccess(player);
+        } else {
+            // Fallback
+            const { player } = playerService.initializeState();
+            onAuthSuccess(player);
         }
-    }, [onAuthSuccess]);
+    };
 
     const handleGuestPlay = () => {
-        // Just initialize with local storage
         const { player } = playerService.initializeState();
         onAuthSuccess(player);
     };
@@ -40,6 +37,12 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess }) => {
             <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-10 pointer-events-none"></div>
             <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-900 via-blue-500 to-blue-900 opacity-50"></div>
             
+            <AuthModal 
+                isOpen={showAuthModal} 
+                onClose={() => setShowAuthModal(false)}
+                onLoginSuccess={handleLoginSuccess}
+            />
+
             {/* Main Container */}
             <div className="w-full max-w-lg relative z-10 flex flex-col items-center gap-8 animate-in zoom-in duration-500">
                 
@@ -58,15 +61,15 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess }) => {
                 <div className="flex gap-4 text-[10px] md:text-xs font-mono text-gray-600 border-y border-gray-800 py-2 w-full justify-center">
                     <span className="flex items-center gap-1"><Globe size={12} className="text-green-500"/> SERVER: ONLINE</span>
                     <span>•</span>
-                    <span>VERSION: 3.1.0</span>
+                    <span>VERSION: 3.2.1</span>
                     <span>•</span>
-                    <span className="text-blue-500 animate-pulse">NETLIFY UPLINK ACTIVE</span>
+                    <span className="text-blue-500 animate-pulse">CLOUD UPLINK READY</span>
                 </div>
 
                 {/* Actions */}
                 <div className="w-full space-y-4">
                     <button 
-                        onClick={() => authService.openLogin()}
+                        onClick={() => setShowAuthModal(true)}
                         className="group w-full py-5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl shadow-[0_0_20px_rgba(37,99,235,0.3)] flex items-center justify-center gap-3 transition-all hover:scale-[1.02]"
                     >
                         <LogIn size={24} className="group-hover:translate-x-1 transition-transform"/>
@@ -92,7 +95,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess }) => {
             <div className="absolute bottom-8 text-center">
                 <p className="text-[10px] text-gray-700 font-mono max-w-xs mx-auto">
                     BY ACCESSING THIS TERMINAL YOU AGREE TO THE PROTOCOLS OF ENGAGEMENT. 
-                    <br/>POWERED BY NETLIFY IDENTITY.
+                    <br/>SECURE CONNECTION ESTABLISHED.
                 </p>
             </div>
         </div>
