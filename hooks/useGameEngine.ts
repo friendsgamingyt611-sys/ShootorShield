@@ -174,7 +174,8 @@ export const useGameEngine = (initialPlayer?: PlayerStats) => {
         round: state.round,
         players: players,
         gameMessage: message,
-        timeLeft: state.turnDuration
+        timeLeft: state.turnDuration,
+        winnerTeam: state.winnerTeam
     });
   };
 
@@ -257,7 +258,8 @@ export const useGameEngine = (initialPlayer?: PlayerStats) => {
         roundsWon: 0,
         cumulativeHealth: 0,
         successfulActions: 0,
-        matchCash: MATCH_STARTING_CASH
+        matchCash: MATCH_STARTING_CASH,
+        matchStats: { damage: 0, kills: 0, deaths: 0, assists: 0, score: 0 }
     };
   };
 
@@ -270,7 +272,19 @@ export const useGameEngine = (initialPlayer?: PlayerStats) => {
           // Reload fresh state to ensure sync
           const { player } = playerService.initializeState(gameState.player); 
           
-          const hostPlayer = { ...INITIAL_PLAYER, ...player, id: id, isHost: true, isReady: false, teamId: 1, roundsWon: 0, matchCash: MATCH_STARTING_CASH, cumulativeHealth: 0, successfulActions: 0 };
+          const hostPlayer = { 
+              ...INITIAL_PLAYER, 
+              ...player, 
+              id: id, 
+              isHost: true, 
+              isReady: false, 
+              teamId: 1, 
+              roundsWon: 0, 
+              matchCash: MATCH_STARTING_CASH, 
+              cumulativeHealth: 0, 
+              successfulActions: 0,
+              matchStats: { damage: 0, kills: 0, deaths: 0, assists: 0, score: 0 }
+          };
           
           setGameState(prev => ({
               ...prev,
@@ -409,6 +423,13 @@ export const useGameEngine = (initialPlayer?: PlayerStats) => {
               matchupMap[t2[i].id] = p.id;
           }
       });
+      
+      // Reset match stats for everyone
+      currentPlayers = currentPlayers.map(p => ({
+          ...p,
+          matchStats: { damage: 0, kills: 0, deaths: 0, assists: 0, score: 0 },
+          roundsWon: 0
+      }));
 
       setGameState(prev => ({
           ...prev,
@@ -431,6 +452,35 @@ export const useGameEngine = (initialPlayer?: PlayerStats) => {
       startTurnSequence(currentPlayers, matchupMap);
   };
 
+  const handleReturnToLobby = () => {
+      // Logic for returning to lobby from Post Match screen
+      const resetPlayers = gameState.players.map(p => {
+          // Keep persistent data, reset match state
+          const { player } = playerService.initializeState(p);
+          return {
+              ...player,
+              id: p.id,
+              name: p.name,
+              isHost: p.isHost,
+              teamId: p.teamId,
+              isReady: false,
+              matchStats: { damage: 0, kills: 0, deaths: 0, assists: 0, score: 0 },
+              roundsWon: 0,
+              cumulativeHealth: 0,
+              matchCash: MATCH_STARTING_CASH
+          };
+      });
+
+      if (gameState.mode === 'MULTIPLAYER') {
+          if (gameState.isHost) {
+               NetworkService.broadcast('RETURN_TO_LOBBY', { players: resetPlayers });
+               setGameState(prev => ({ ...prev, phase: 'LOBBY_ROOM', players: resetPlayers, round: 1, turnLog: [] }));
+          }
+      } else {
+          setGameState(prev => ({ ...prev, phase: 'LOBBY_ROOM', players: resetPlayers, round: 1, turnLog: [] }));
+      }
+  };
+
   const handleLeaveGame = (force: boolean = false) => {
       if (gameState.isConnected) {
           NetworkService.sendTo(gameState.roomCode || '', 'LEAVE', {});
@@ -450,17 +500,24 @@ export const useGameEngine = (initialPlayer?: PlayerStats) => {
   
   const initializeCombat = () => {
       const opponent = generateBot(gameState.player.level, 2);
+      const playerWithResetStats = { 
+          ...gameState.player, 
+          matchStats: { damage: 0, kills: 0, deaths: 0, assists: 0, score: 0 },
+          roundsWon: 0
+      };
+      
       setGameState(prev => ({
           ...prev,
           mode: 'SOLO',
           phase: 'COMBAT',
           round: 1,
           maxRounds: 3,
+          player: playerWithResetStats,
           opponent: opponent,
-          players: [prev.player, opponent],
+          players: [playerWithResetStats, opponent],
           matchups: { [prev.player.id]: opponent.id, [opponent.id]: prev.player.id }
       }));
-      startTurnSequence([gameState.player, opponent], { [gameState.player.id]: opponent.id });
+      startTurnSequence([playerWithResetStats, opponent], { [gameState.player.id]: opponent.id });
   };
 
   const startTurnSequence = (currentPlayers?: PlayerStats[], currentMatchups?: Record<string, string>) => {
@@ -630,6 +687,9 @@ export const useGameEngine = (initialPlayer?: PlayerStats) => {
                    dmg *= (1 - p2.character.passiveAbility.value);
                }
                p2Damage += dmg;
+               
+               // Update Match Stats for P1 Damage
+               p1.matchStats.damage += dmg;
           }
       }
 
@@ -664,6 +724,9 @@ export const useGameEngine = (initialPlayer?: PlayerStats) => {
                    dmg *= (1 - p1.character.passiveAbility.value);
                }
                p1Damage += dmg;
+               
+               // Update Match Stats for P2 Damage
+               p2.matchStats.damage += dmg;
           }
       }
 
@@ -683,6 +746,16 @@ export const useGameEngine = (initialPlayer?: PlayerStats) => {
 
       p1.health = Math.max(0, p1.health - p1Damage);
       p2.health = Math.max(0, p2.health - p2Damage);
+      
+      // Update Kills/Deaths if someone died
+      if (p1.health <= 0) {
+          p2.matchStats.kills += 1;
+          p1.matchStats.deaths += 1;
+      }
+      if (p2.health <= 0) {
+          p1.matchStats.kills += 1;
+          p2.matchStats.deaths += 1;
+      }
       
       p1.cumulativeHealth -= p1Damage;
       p2.cumulativeHealth -= p2Damage;
@@ -840,7 +913,7 @@ export const useGameEngine = (initialPlayer?: PlayerStats) => {
           const shotsHit = gameState.turnLog.reduce((sum, l) => (l.playerAction === ActionType.SHOOT && l.opponentDamageTaken > 0) ? sum + (l.playerIntensity || 1) : sum, 0);
           const blocks = gameState.turnLog.reduce((sum, l) => (l.playerAction === ActionType.SHIELD && l.opponentAction === ActionType.SHOOT) ? sum + 1 : sum, 0);
 
-          // Update Detailed Stats
+          // Update Detailed Stats & HISTORY
           const matchResPartial = {
               damageDealt, damageTaken, shotsFired, shotsHit, blocksSuccessful: blocks,
               victoryReason: won ? "VICTORY" : "DEFEAT",
@@ -854,7 +927,7 @@ export const useGameEngine = (initialPlayer?: PlayerStats) => {
               completedTasks: []
           };
           
-          let finalPlayer = playerService.updateDetailedStats(xpUpdated, matchResPartial as MatchResult);
+          let finalPlayer = playerService.updateDetailedStats(xpUpdated, matchResPartial as MatchResult, gameState.opponent.name, gameState.mode);
           
           // Update Tasks
           finalPlayer = playerService.updateTasks(finalPlayer, 'PLAY', 1);
@@ -864,8 +937,9 @@ export const useGameEngine = (initialPlayer?: PlayerStats) => {
           const { player: achPlayer, newUnlocks } = playerService.checkAchievements(finalPlayer);
           finalPlayer = achPlayer;
           
-          // Save all
-          playerService.saveProfile({ ...finalPlayer, credits: finalPlayer.credits + credits });
+          // Save all (Credits added in addXp/claim, ensuring creditsEarned are added)
+          finalPlayer.credits += credits;
+          playerService.saveProfile(finalPlayer);
           
           result = {
               ...matchResPartial,
@@ -877,13 +951,23 @@ export const useGameEngine = (initialPlayer?: PlayerStats) => {
           }
       }
       
+      // Calculate Score for MVP
+      const finalPlayers = players.map(p => ({
+          ...p,
+          matchStats: {
+              ...p.matchStats,
+              score: (p.matchStats.kills * 1000) + Math.floor(p.matchStats.damage / 10) + (p.roundsWon * 500)
+          }
+      }));
+
       setGameState(prev => ({
           ...prev,
-          phase: won ? 'VICTORY' : 'GAMEOVER',
+          phase: 'POST_MATCH', // New phase
           combatSubPhase: 'ROUND_OVER',
-          players: players,
+          players: finalPlayers,
           matchResult: result,
-          newUnlock: newUnlock
+          newUnlock: newUnlock,
+          winnerTeam: winnerTeam
       }));
   };
 
@@ -934,6 +1018,7 @@ export const useGameEngine = (initialPlayer?: PlayerStats) => {
     handleChangeMatchType,
     handleLobbySettingChange,
     handleManualSwitch,
+    handleReturnToLobby,
     
     buyItem,
     equipItem,
@@ -969,6 +1054,10 @@ export const useGameEngine = (initialPlayer?: PlayerStats) => {
     
     handleSendLike: (targetId: string) => {
         NetworkService.sendTo(targetId, 'GAME_EVENT', { type: 'LIKE', targetId });
+        setGameState(prev => ({
+            ...prev,
+            players: prev.players.map(p => p.id === targetId ? { ...p, likes: p.likes + 1 } : p)
+        }));
     },
     
     toggleSocial: () => setGameState(prev => ({ ...prev, isSocialOpen: !prev.isSocialOpen })),
@@ -1010,6 +1099,7 @@ export const useGameEngine = (initialPlayer?: PlayerStats) => {
                               matchCash: MATCH_STARTING_CASH,
                               cumulativeHealth: 0,
                               successfulActions: 0,
+                              matchStats: { damage: 0, kills: 0, deaths: 0, assists: 0, score: 0 },
                               profile: p.profile
                           };
                           
@@ -1044,6 +1134,16 @@ export const useGameEngine = (initialPlayer?: PlayerStats) => {
                       turnDuration: packet.payload.settings.turnDuration
                   }));
                   break;
+              
+              case 'RETURN_TO_LOBBY':
+                  setGameState(prev => ({
+                      ...prev,
+                      phase: 'LOBBY_ROOM',
+                      players: packet.payload.players,
+                      round: 1,
+                      turnLog: [],
+                  }));
+                  break;
                   
               case 'GAME_STATE_SYNC':
                   if (!gameStateRef.current.isHost) {
@@ -1056,7 +1156,8 @@ export const useGameEngine = (initialPlayer?: PlayerStats) => {
                           players: sync.players,
                           turnDuration: sync.timeLeft || prev.turnDuration,
                           player: sync.players.find((pl: PlayerStats) => pl.id === prev.myId) || prev.player,
-                          opponent: sync.players.find((pl: PlayerStats) => pl.id === prev.matchups[prev.myId]) || prev.opponent
+                          opponent: sync.players.find((pl: PlayerStats) => pl.id === prev.matchups[prev.myId]) || prev.opponent,
+                          winnerTeam: sync.winnerTeam
                       }));
                       setUiState(prev => ({ ...prev, gameMessage: sync.gameMessage }));
                   }
@@ -1083,6 +1184,16 @@ export const useGameEngine = (initialPlayer?: PlayerStats) => {
               case 'SWITCH_TEAM':
                   if (packet.payload.playerId === gameStateRef.current.myId) {
                       // play sound?
+                  }
+                  break;
+                  
+              case 'GAME_EVENT':
+                  if (packet.payload.type === 'LIKE') {
+                      setGameState(prev => ({
+                          ...prev,
+                          player: { ...prev.player, likes: prev.player.likes + 1 },
+                          players: prev.players.map(p => p.id === prev.myId ? { ...p, likes: p.likes + 1 } : p)
+                      }));
                   }
                   break;
           }

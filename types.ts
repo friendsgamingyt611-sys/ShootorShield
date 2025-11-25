@@ -45,6 +45,24 @@ export interface ItemStats {
   coordinateTime?: number; // New Factor: Lower is better (seconds)
 }
 
+// --- HISTORY & RECORDS ---
+export interface MatchRecord {
+    id: string;
+    timestamp: number;
+    opponentName: string;
+    result: 'VICTORY' | 'DEFEAT' | 'DRAW';
+    eloChange: number;
+    creditsEarned: number;
+    xpEarned: number;
+    stats: {
+        damageDealt: number;
+        shotsFired: number;
+        shotsHit: number;
+        accuracy: number;
+    };
+    mode: GameMode;
+}
+
 export interface MatchResult {
   eloChange: number;
   xpGained: number;
@@ -114,6 +132,14 @@ export interface AuthResponse {
     message?: string;
 }
 
+export interface MatchStats {
+    damage: number;
+    kills: number;
+    deaths: number;
+    assists: number;
+    score: number;
+}
+
 export interface PlayerStats {
   id: string; 
   name: string; // Callsign (Changeable)
@@ -144,6 +170,7 @@ export interface PlayerStats {
   accuracyPercentage: number;
   
   achievements: PlayerAchievement[];
+  matchHistory: MatchRecord[]; // NEW: Store history
   privacySettings: PrivacySettings;
   userSettings: UserSettings;
 
@@ -171,6 +198,7 @@ export interface PlayerStats {
   maxShieldCharges: number;
   
   // Match Tracking (Persists across rounds)
+  matchStats: MatchStats; // NEW: Track stats for current match only
   roundsWon: number;
   cumulativeHealth: number; 
   successfulActions: number; 
@@ -229,7 +257,7 @@ export interface GameState {
   turnDuration: number; 
   isPublic: boolean; 
   
-  phase: 'AUTH' | 'MAIN_MENU' | 'MULTIPLAYER_LOBBY' | 'LOBBY_ROOM' | 'CHARACTER_SELECT' | 'COMBAT' | 'SHOP' | 'GAMEOVER' | 'VICTORY';
+  phase: 'AUTH' | 'MAIN_MENU' | 'MULTIPLAYER_LOBBY' | 'LOBBY_ROOM' | 'CHARACTER_SELECT' | 'COMBAT' | 'SHOP' | 'GAMEOVER' | 'VICTORY' | 'MATCH_HISTORY' | 'POST_MATCH';
   combatSubPhase: CombatSubPhase; 
   mode: GameMode;
   matchType: MatchType;
@@ -255,6 +283,7 @@ export interface GameState {
 
   matchResult?: MatchResult;
   victoryReason?: string;
+  winnerTeam?: number; // 1 or 2
   
   // Social UI State
   inspectingPlayer?: PlayerProfile | null;
@@ -303,7 +332,7 @@ export interface ChatMessage {
   }; 
 }
 
-export type PacketType = 'HANDSHAKE' | 'LOBBY_UPDATE' | 'PLAYER_READY' | 'START_GAME' | 'COMMIT_MOVE' | 'CHAT' | 'KICK' | 'GAME_STATE_SYNC' | 'GAME_EVENT' | 'SWITCH_TEAM' | 'LOBBY_SETTINGS' | 'LOBBY_CLOSED' | 'LEAVE' | 'MATCH_BUY' | 'LOOT_REQUEST' | 'FRIEND_REQUEST' | 'INVITE_LOBBY';
+export type PacketType = 'HANDSHAKE' | 'LOBBY_UPDATE' | 'PLAYER_READY' | 'START_GAME' | 'COMMIT_MOVE' | 'CHAT' | 'KICK' | 'GAME_STATE_SYNC' | 'GAME_EVENT' | 'SWITCH_TEAM' | 'LOBBY_SETTINGS' | 'LOBBY_CLOSED' | 'LEAVE' | 'MATCH_BUY' | 'LOOT_REQUEST' | 'FRIEND_REQUEST' | 'INVITE_LOBBY' | 'RETURN_TO_LOBBY';
 
 export interface NetworkPacket {
   type: PacketType;

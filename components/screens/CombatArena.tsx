@@ -1,4 +1,5 @@
 
+
 import React, { useEffect, useRef, useState } from 'react';
 import { GameCard } from '../GameCard';
 import { GameState, ActionType, PlayerStats, ItemStats } from '../../types';
@@ -539,8 +540,6 @@ export const CombatArena: React.FC<CombatArenaProps> = ({
                           <div className="text-center text-white font-bold">MATCH COMPLETE</div>
                       </div>
                   )}
-                  {gameState.phase === 'GAMEOVER' && <button onClick={onRestart} className="px-8 py-3 bg-red-600 text-white font-bold rounded shadow-lg flex items-center gap-2 hover:scale-105 transition-transform"><Skull size={20} /> RETRY MISSION</button>}
-                  {gameState.phase === 'VICTORY' && <button onClick={onShop} className="px-8 py-3 bg-yellow-600 text-black font-bold rounded shadow-lg flex items-center gap-2 animate-pulse hover:scale-105 transition-transform"><ShoppingBag size={20} /> ACCESS MARKET</button>}
                   {isShopping && (
                       <div className="text-center">
                           <div className="text-xs text-gray-500 font-mono mb-1">SHOPPING PHASE</div>

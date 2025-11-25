@@ -1,94 +1,48 @@
 
 import { PlayerStats, AuthResponse } from "../types";
+import { authService, dataService } from "./firebase";
 
-// REAL BACKEND INTEGRATION
-const BASE_URL = '/.netlify/functions/api';
+// This service now acts as a bridge to the Firebase Plugin
+// Keeping the same method signatures so the rest of the app doesn't break
 
 export class CloudService {
     
-    private getHeaders(token?: string) {
-        const headers: Record<string, string> = {
-            'Content-Type': 'application/json'
-        };
-        if (token) {
-            headers['Authorization'] = `Bearer ${token}`;
-        }
-        return headers;
+    public async register(username: string, callsign: string, pass: string): Promise<AuthResponse> {
+        return await authService.register(username, callsign, pass);
     }
 
-    public async register(username: string, callsign: string, password: string): Promise<AuthResponse> {
-        try {
-            const response = await fetch(`${BASE_URL}/register`, {
-                method: 'POST',
-                headers: this.getHeaders(),
-                body: JSON.stringify({ username, callsign, password })
-            });
-            const data = await response.json();
-            // Map 409 to friendly message if not present
-            if (response.status === 409 && !data.message) {
-                 return { success: false, message: "Username or Callsign already taken." };
-            }
-            return data;
-        } catch (error) {
-            console.error("Registration Error:", error);
-            return { success: false, message: "Network error during registration." };
-        }
-    }
-
-    public async login(username: string, password: string): Promise<AuthResponse> {
-        try {
-            const response = await fetch(`${BASE_URL}/login`, {
-                method: 'POST',
-                headers: this.getHeaders(),
-                body: JSON.stringify({ username, password })
-            });
-            return await response.json();
-        } catch (error) {
-            console.error("Login Error:", error);
-            return { success: false, message: "Network error during login." };
-        }
+    public async login(username: string, pass: string): Promise<AuthResponse> {
+        return await authService.login(username, pass);
     }
 
     public async updateCallsign(token: string, newCallsign: string): Promise<boolean> {
-        // Callsign updates happen via sync now for simplicity, or we can add a dedicated endpoint.
-        // The sync endpoint updates callsign if name changed in payload.
-        return true; 
+        const player = authService.getCachedPlayer();
+        if (player) {
+            player.name = newCallsign;
+            await dataService.saveProfile(player);
+            return true;
+        }
+        return false;
     }
 
     public async syncProfile(player: PlayerStats, token: string): Promise<boolean> {
-        try {
-            const response = await fetch(`${BASE_URL}/sync`, {
-                method: 'POST',
-                headers: this.getHeaders(token),
-                body: JSON.stringify({ playerData: player })
-            });
-            const data = await response.json();
-            return data.success;
-        } catch (error) {
-            console.warn("Sync failed:", error);
-            return false;
-        }
+        await dataService.saveProfile(player);
+        return true;
     }
 
     public async getProfile(token: string): Promise<PlayerStats | null> {
-        try {
-            const response = await fetch(`${BASE_URL}/profile`, {
-                method: 'GET',
-                headers: this.getHeaders(token)
-            });
-            const data = await response.json();
-            if (data.success && data.player) {
-                return data.player;
-            }
-            return null;
-        } catch (error) {
-            return null;
-        }
+        // In the new architecture, we verify session via Firebase Auth state
+        // For simplicity, we return the cached player or wait for auth state
+        return authService.getCachedPlayer();
     }
 
     public async unlockAchievement(playerId: string, achievementId: string, token: string): Promise<boolean> {
-        // Handled via profile sync in this architecture
-        return true;
+        const player = authService.getCachedPlayer();
+        if (player) {
+             // Logic handled in playerService, eventually calls syncProfile
+             return true;
+        }
+        return false;
     }
 }
 

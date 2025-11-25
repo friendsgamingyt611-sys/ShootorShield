@@ -1,10 +1,21 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
 import { ActionType, AIResponse, PlayerStats } from "../types";
+import { GEMINI_API_KEY } from "./firebaseConfig";
 
-// Initialize Gemini
-const apiKey = process.env.API_KEY || ''; 
-const ai = new GoogleGenAI({ apiKey });
+// Initialize Gemini safely
+// If the key is left as "YOUR_GEMINI_API_KEY", the game will use offline heuristic AI
+const apiKey = GEMINI_API_KEY !== "YOUR_GEMINI_API_KEY" ? GEMINI_API_KEY : ""; 
+
+let ai: GoogleGenAI | null = null;
+
+if (apiKey) {
+    try {
+        ai = new GoogleGenAI({ apiKey });
+    } catch (e) {
+        console.warn("Gemini AI failed to initialize", e);
+    }
+}
 
 export const getAIMove = async (
   player: PlayerStats, 
@@ -16,19 +27,32 @@ export const getAIMove = async (
   if (opponent.ammo > 0) availableMoves.push(ActionType.SHOOT);
   if (opponent.shieldCharges > 0) availableMoves.push(ActionType.SHIELD);
 
+  // Advanced Heuristic Logic (Offline Mode)
+  // This ensures the game is playable even without an API Key
   const randomMove = availableMoves[Math.floor(Math.random() * availableMoves.length)];
-  // Default burst logic for fallback
   let randomIntensity = 1;
+  
+  // Logic: If player is low health, try to finish them
+  if (player.health < 30 && opponent.ammo > 0) {
+      return {
+          action: ActionType.SHOOT,
+          intensity: Math.min(opponent.ammo, 3),
+          thoughtProcess: "Target critical. Executing finishing protocol.",
+          taunt: "Goodbye."
+      };
+  }
+
+  // Logic: If I have high ammo, burst fire
   if (randomMove === ActionType.SHOOT && opponent.ammo >= 2) {
       randomIntensity = Math.random() > 0.7 ? Math.min(3, opponent.ammo) : 1; 
   }
   
-  if (!apiKey) {
-    console.warn("No API Key found. Using random AI.");
+  // Return random AI if no key or error
+  if (!ai) {
     return {
       action: randomMove,
       intensity: randomIntensity,
-      thoughtProcess: "The simulation runs on basic heuristics.",
+      thoughtProcess: "Offline Protocol: Pattern Analysis Active.",
       taunt: "..."
     };
   }
@@ -43,24 +67,14 @@ export const getAIMove = async (
       2. SHIELD beats SHOOT (Blocks Damage). Requires SHIELD CHARGE.
       3. IDLE restores nothing but waits for opportunity.
       4. BURST FIRE: You can shoot multiple bullets (intensity) at once. 
-         - Risk: If enemy SHIELDS, all ammo is wasted.
-         - Reward: Massive damage if they IDLE or SHOOT.
       5. Base Gun Damage is 25 per bullet.
       
-      Current Resources:
-      You (AI): HP ${opponent.health}, Armor ${opponent.armor}, Ammo ${opponent.ammo}/${opponent.maxAmmo}, Shield Charges ${opponent.shieldCharges}/${opponent.maxShieldCharges}.
-      Character Ability: ${opponent.character.passiveAbility.name} (${opponent.character.passiveAbility.description}).
+      Status:
+      AI (You): HP ${opponent.health}, Ammo ${opponent.ammo}, Shield ${opponent.shieldCharges}.
+      Player (Enemy): HP ${player.health}, Ammo ${player.ammo}, Shield ${player.shieldCharges}.
+      History: ${history.join(', ')}.
       
-      Enemy (Player): HP ${player.health}, Armor ${player.armor}, Ammo ${player.ammo}/${player.maxAmmo}, Shield Charges ${player.shieldCharges}/${player.maxShieldCharges}.
-      Character Ability: ${player.character.passiveAbility.name} (${player.character.passiveAbility.description}).
-      
-      Recent History: ${history.length > 0 ? history.join(', ') : 'None'}.
-      
-      Decide your next move.
-      - Action: SHOOT, SHIELD, or IDLE.
-      - Intensity: If SHOOTing, how many bullets? (1 to ${opponent.ammo}). Defaults to 1.
-      
-      Provide a strategic reasoning and a short, cyber-punk style taunt.
+      Decide your next move (SHOOT, SHIELD, IDLE) and intensity.
     `;
 
     const response = await ai.models.generateContent({
@@ -72,7 +86,7 @@ export const getAIMove = async (
           type: Type.OBJECT,
           properties: {
             action: { type: Type.STRING, enum: ["SHOOT", "SHIELD", "IDLE"] },
-            intensity: { type: Type.NUMBER, description: "Number of bullets to fire if Shooting." },
+            intensity: { type: Type.NUMBER },
             thoughtProcess: { type: Type.STRING },
             taunt: { type: Type.STRING }
           },
@@ -82,34 +96,22 @@ export const getAIMove = async (
     });
 
     const jsonText = response.text;
-    if (!jsonText) throw new Error("Empty response from AI");
+    if (!jsonText) throw new Error("Empty response");
     
     const result = JSON.parse(jsonText) as AIResponse;
     
-    // Validate AI move against resources
-    if (result.action === ActionType.SHOOT) {
-        if (opponent.ammo <= 0) {
-            result.action = ActionType.IDLE;
-            result.thoughtProcess += " (Forced IDLE: Out of Ammo)";
-        } else {
-            // Clamp intensity
-            result.intensity = Math.max(1, Math.min(result.intensity || 1, opponent.ammo));
-        }
-    }
-    if (result.action === ActionType.SHIELD && opponent.shieldCharges <= 0) {
-      result.action = ActionType.IDLE;
-      result.thoughtProcess += " (Forced IDLE: Shield Depleted)";
-    }
+    // Validate logic locally
+    if (result.action === ActionType.SHOOT && opponent.ammo <= 0) result.action = ActionType.IDLE;
+    if (result.action === ActionType.SHIELD && opponent.shieldCharges <= 0) result.action = ActionType.IDLE;
 
     return result;
 
   } catch (error) {
-    console.error("Gemini Error:", error);
     return {
       action: randomMove,
       intensity: randomIntensity,
-      thoughtProcess: "System error. Rebooting logic cores.",
-      taunt: "You got lucky, glitch."
+      thoughtProcess: "Fallback Protocol Engaged.",
+      taunt: "..."
     };
   }
 };

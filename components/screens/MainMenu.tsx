@@ -1,12 +1,12 @@
 
 import React, { useState, useEffect } from 'react';
-import { Crosshair, Globe, Calendar, CheckCircle, Gift, User, Trophy, Battery, Edit } from 'lucide-react';
+import { Crosshair, Globe, Calendar, CheckCircle, Gift, User, Trophy, Battery, Edit, History } from 'lucide-react';
 import { PlayerStats, DailyTask } from '../../types';
 import { playerService } from '../../services/playerService';
 import { socialService } from '../../services/socialService';
 
 interface MainMenuProps {
-  onSelectMode: (mode: 'SOLO' | 'MULTIPLAYER') => void;
+  onSelectMode: (mode: 'SOLO' | 'MULTIPLAYER' | 'MATCH_HISTORY') => void;
   player: PlayerStats; // Receive player data to show progress
   dailyRewardClaimed: boolean;
   onClaimTask: (id: string) => void;
@@ -23,22 +23,8 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onSelectMode, player, dailyR
     }
   }, [dailyRewardClaimed]);
 
-  // Generate a profile object for the local player to pass to the inspector
   const localProfile = socialService.getProfileFor(player);
-  // Ensure local profile has the latest custom avatar
   if (player.customAvatar) localProfile.customAvatar = player.customAvatar;
-
-  // We need to dispatch an event to open the inspector. 
-  // Since MainMenu doesn't have direct access to actions.inspectPlayer without prop drilling,
-  // we will rely on App.tsx passing a specific prop or we can cheat slightly by using a window event or refactoring.
-  // But wait, App.tsx renders MainMenu. I should update App.tsx to pass "onInspectSelf".
-  // For now, I will emit a custom event or assume the parent handles it if I click the profile.
-  // Actually, looking at App.tsx, it doesn't pass inspectPlayer to MainMenu.
-  // I will assume the user clicked the profile area to "edit" it. 
-  
-  // Let's trigger a custom event that App.tsx listens to? No, that's messy.
-  // I'll add an ID to the div and let App.tsx handle it? No.
-  // I will just update the props in App.tsx as well.
 
   return (
     <div className="flex flex-col items-center justify-center min-h-[70vh] space-y-8 animate-in fade-in zoom-in duration-500 relative">
@@ -103,6 +89,13 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onSelectMode, player, dailyR
             </div>
             
             <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
+                <button 
+                    onClick={() => onSelectMode('MATCH_HISTORY')}
+                    className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg border border-gray-700 flex items-center gap-2 text-xs font-bold transition-all"
+                >
+                    <History size={14} className="text-blue-400" />
+                    HISTORY
+                </button>
                 <button 
                     onClick={() => setShowMissions(!showMissions)}
                     className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg border border-gray-700 flex items-center gap-2 text-xs font-bold transition-all relative"

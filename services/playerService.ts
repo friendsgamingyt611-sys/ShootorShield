@@ -1,54 +1,82 @@
 
 
-import { PlayerStats, ItemStats, DailyTask, MatchResult, Achievement } from '../types';
+import { PlayerStats, ItemStats, DailyTask, MatchResult, Achievement, MatchRecord } from '../types';
 import { INITIAL_PLAYER, DAILY_TASK_TEMPLATES, getLevelXp, GUNS, SHIELDS, ARMORS, DAILY_LOGIN_REWARD, ACHIEVEMENTS } from '../constants';
-import { cloudService } from './cloud';
 import { authService } from './auth';
 
 class PlayerService {
   
-  // Now accepts an optional player to initialize, otherwise uses default
-  public initializeState(serverPlayer?: PlayerStats): { player: PlayerStats, rewardClaimed: boolean } {
-    let player = serverPlayer ? { ...INITIAL_PLAYER, ...serverPlayer } : { ...INITIAL_PLAYER };
-    
-    // Re-hydrate items logic (in case JSON lost function references or specific object pointers)
-    player.gun = GUNS.find(g => g.id === player.gun.id) || GUNS[0];
-    player.shield = SHIELDS.find(s => s.id === player.shield.id) || SHIELDS[0];
-    player.armorItem = ARMORS.find(a => a.id === player.armorItem.id) || ARMORS[0];
+  public initializeState(existingState?: PlayerStats): { player: PlayerStats, rewardClaimed: boolean } {
+    // 1. Try to load from Cloud (Netlify Identity) or LocalStorage through authService
+    // authService now handles the logic of "Best available source"
+    const loadedData = authService.getCachedPlayer();
 
-    // Ensure daily tasks exist
-    if (!player.dailyTasks || player.dailyTasks.length === 0) {
-        player.dailyTasks = this.generateDailyTasks();
+    let player: PlayerStats = { ...INITIAL_PLAYER };
+
+    if (loadedData) {
+        player = {
+            ...player,
+            ...loadedData,
+            // Re-link item objects from IDs to ensure stats are up to date with game version
+            gun: GUNS.find(g => g.id === loadedData.gun.id) || GUNS[0],
+            shield: SHIELDS.find(s => s.id === loadedData.shield.id) || SHIELDS[0],
+            armorItem: ARMORS.find(a => a.id === loadedData.armorItem.id) || ARMORS[0],
+            dailyTasks: loadedData.dailyTasks || player.dailyTasks,
+            matchHistory: loadedData.matchHistory || [],
+            userSettings: { ...player.userSettings, ...loadedData.userSettings }, // Merge settings
+            matchStats: { damage: 0, kills: 0, deaths: 0, assists: 0, score: 0 } // Reset match stats
+        };
     }
 
-    // Login Reward Logic
+    if (existingState) {
+        player = { ...player, ...existingState };
+    }
+    
+    // Ensure ID stability if logged in via auth wrapper
+    const user = authService.getCurrentUser();
+    if (user && user.id) {
+        player.id = user.id;
+        player.username = user.email || player.username;
+    }
+
+    // --- DAILY LOGIC ---
+    // Check if the day has changed since last login
     let rewardClaimed = false;
     const now = Date.now();
     const lastLogin = new Date(player.lastLogin || 0);
     const today = new Date(now);
     
+    // Reset if it's a different calendar day
     const isSameDay = lastLogin.getDate() === today.getDate() && 
                       lastLogin.getMonth() === today.getMonth() && 
                       lastLogin.getFullYear() === today.getFullYear();
 
     if (!isSameDay) {
+      console.log("New Day Detected: Resetting Missions & Daily Reward");
       player.credits += DAILY_LOGIN_REWARD;
-      player.dailyTasks = this.generateDailyTasks();
-      player.lastLogin = now;
+      player.dailyTasks = this.generateDailyTasks(); // New missions
       rewardClaimed = true;
-      this.saveProfile(player);
     }
+    
+    // Update login time
+    player.lastLogin = now;
+    
+    // Validate inventory integrity
+    player.inventory = [...new Set([...player.inventory, 'g1', 's1', 'a1'])];
+
+    this.saveProfile(player);
 
     return { player, rewardClaimed };
   }
 
   public saveProfile(player: PlayerStats) {
-    const token = authService.getToken();
-    if (token) {
-        cloudService.syncProfile(player, token).catch(err => console.warn("Background sync error", err));
-    }
-    // Also update local cache for offline robustness / faster loads
+    // 1. Save Local (Instant, synchronous, ensuring no data loss on refresh)
     localStorage.setItem('sos_user_cache', JSON.stringify(player));
+    
+    // 2. Save Cloud (Async, if logged in)
+    if (authService.isAuthenticated()) {
+        authService.saveToCloud(player);
+    }
   }
 
   public updateProfile(player: PlayerStats, name: string, avatarBase64?: string): PlayerStats {
@@ -57,20 +85,20 @@ class PlayerService {
         name: name || player.name,
         customAvatar: avatarBase64 || player.customAvatar
     };
-    
-    // If name changed, update it on the auth/user level too
-    if (name !== player.name) {
-        const token = authService.getToken();
-        if (token) cloudService.updateCallsign(token, name);
-    }
-
     this.saveProfile(newPlayer);
     return newPlayer;
   }
+  
+  public updateSettings(player: PlayerStats, settings: Partial<PlayerStats['userSettings']>): PlayerStats {
+      const newPlayer = {
+          ...player,
+          userSettings: { ...player.userSettings, ...settings }
+      };
+      this.saveProfile(newPlayer);
+      return newPlayer;
+  }
 
-  // --- CORE LOGIC UPDATES ---
-
-  public updateDetailedStats(player: PlayerStats, matchResult: MatchResult): PlayerStats {
+  public updateDetailedStats(player: PlayerStats, matchResult: MatchResult, opponentName: string, mode: 'SOLO' | 'MULTIPLAYER'): PlayerStats {
       const isWin = matchResult.victoryReason === "VICTORY";
       
       let newWinStreak = isWin ? player.winStreak + 1 : 0;
@@ -80,7 +108,28 @@ class PlayerService {
       const totalHits = player.totalShotsHit + matchResult.shotsHit;
       const acc = totalShots > 0 ? totalHits / totalShots : 0;
 
-      return {
+      // Create Match History Record
+      const newRecord: MatchRecord = {
+          id: Math.random().toString(36).substr(2, 9),
+          timestamp: Date.now(),
+          opponentName: opponentName,
+          result: isWin ? 'VICTORY' : 'DEFEAT',
+          eloChange: matchResult.eloChange,
+          creditsEarned: matchResult.creditsGained,
+          xpEarned: matchResult.xpGained,
+          stats: {
+              damageDealt: matchResult.damageDealt,
+              shotsFired: matchResult.shotsFired,
+              shotsHit: matchResult.shotsHit,
+              accuracy: acc
+          },
+          mode: mode
+      };
+      
+      // Keep last 50 matches
+      const updatedHistory = [newRecord, ...player.matchHistory].slice(0, 50);
+
+      const updatedPlayer = {
           ...player,
           totalMatchesPlayed: player.totalMatchesPlayed + 1,
           matchesWon: isWin ? player.matchesWon + 1 : player.matchesWon,
@@ -91,20 +140,22 @@ class PlayerService {
           totalDamageTaken: player.totalDamageTaken + matchResult.damageTaken,
           totalShotsFired: totalShots,
           totalShotsHit: totalHits,
-          accuracyPercentage: acc
+          accuracyPercentage: acc,
+          matchHistory: updatedHistory
       };
+      
+      this.saveProfile(updatedPlayer);
+      return updatedPlayer;
   }
 
   public checkAchievements(player: PlayerStats): { player: PlayerStats, newUnlocks: Achievement[] } {
       const newUnlocks: Achievement[] = [];
       const currentAchievementIds = new Set(player.achievements.map(a => a.achievementId));
-      const token = authService.getToken();
 
       ACHIEVEMENTS.forEach(ach => {
           if (!currentAchievementIds.has(ach.id)) {
               if (ach.condition(player)) {
                   newUnlocks.push(ach);
-                  if (token) cloudService.unlockAchievement(player.id, ach.id, token);
               }
           }
       });
@@ -119,6 +170,7 @@ class PlayerService {
           ]
       };
       
+      this.saveProfile(updatedPlayer);
       return { player: updatedPlayer, newUnlocks };
   }
 
@@ -135,6 +187,7 @@ class PlayerService {
       leveledUp = true;
     }
     
+    this.saveProfile(newPlayer);
     return { player: newPlayer, leveledUp };
   }
 

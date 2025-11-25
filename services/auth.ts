@@ -1,101 +1,57 @@
 
-
-import { cloudService } from "./cloud";
-import { PlayerStats, AuthResponse } from "../types";
+import { PlayerStats } from "../types";
 import { INITIAL_PLAYER } from "../constants";
+import { authService as firebaseAuth, dataService } from "./firebase";
 
-const TOKEN_KEY = 'sos_auth_token';
-const USER_KEY = 'sos_user_cache';
-const REMEMBER_KEY = 'sos_remember_me';
+// "Plug-and-Play" Auth Service
+// Works offline via LocalStorage immediately (Vercel friendly)
+// Upgrades to Firebase Cloud Save automatically if API Keys are provided.
 
 class AuthService {
-    private token: string | null = null;
-    private rememberMe: boolean = false;
-
-    constructor() {
-        // Restore state on load
-        this.rememberMe = localStorage.getItem(REMEMBER_KEY) === 'true';
-        
-        if (this.rememberMe) {
-            this.token = localStorage.getItem(TOKEN_KEY);
-        } else {
-            this.token = sessionStorage.getItem(TOKEN_KEY);
-        }
+    
+    public openLogin() {
+        // Trigger generic UI event that App.tsx or AuthScreen listens to if needed
+        // For now, we rely on the custom AuthModal in UI
     }
 
-    public getToken(): string | null {
-        return this.token;
-    }
-
-    public getRememberMe(): boolean {
-        return this.rememberMe;
-    }
-
-    public setRememberMe(value: boolean) {
-        this.rememberMe = value;
-        localStorage.setItem(REMEMBER_KEY, String(value));
-        
-        // Move token to correct storage
-        if (this.token) {
-            if (value) {
-                localStorage.setItem(TOKEN_KEY, this.token);
-                sessionStorage.removeItem(TOKEN_KEY);
-            } else {
-                sessionStorage.setItem(TOKEN_KEY, this.token);
-                localStorage.removeItem(TOKEN_KEY);
-            }
-        }
-    }
-
-    public async login(username: string, pass: string): Promise<AuthResponse> {
-        const res = await cloudService.login(username, pass);
-        if (res.success && res.token && res.player) {
-            this.handleSessionStart(res.token, res.player);
-        }
-        return res;
-    }
-
-    public async register(username: string, callsign: string, pass: string): Promise<AuthResponse> {
-        const res = await cloudService.register(username, callsign, pass);
-        if (res.success && res.token && res.player) {
-            this.handleSessionStart(res.token, res.player);
-        }
-        return res;
-    }
-
-    private handleSessionStart(token: string, player: PlayerStats) {
-        this.token = token;
-        if (this.rememberMe) {
-            localStorage.setItem(TOKEN_KEY, token);
-        } else {
-            sessionStorage.setItem(TOKEN_KEY, token);
-        }
-        // Cache initial player state
-        localStorage.setItem(USER_KEY, JSON.stringify(player));
+    public openSignup() {
+        // Trigger generic UI event
     }
 
     public logout() {
-        this.token = null;
-        localStorage.removeItem(TOKEN_KEY);
-        sessionStorage.removeItem(TOKEN_KEY);
-        localStorage.removeItem(USER_KEY);
+        localStorage.removeItem('sos_user_cache');
+        firebaseAuth.logout();
         window.location.reload();
     }
 
-    // Check if session is valid by fetching profile
-    public async validateSession(): Promise<PlayerStats | null> {
-        if (!this.token) return null;
-        const player = await cloudService.getProfile(this.token);
-        if (!player) {
-            this.logout(); // Token invalid
-            return null;
-        }
-        return player;
+    public getCurrentUser() {
+        return firebaseAuth.getUser();
     }
-    
-    // Get cached player for instant load (optimistic)
+
+    public isAuthenticated(): boolean {
+        // If we have a cached user, we consider them "logged in" for offline play
+        // If we have a firebase user, they are "cloud logged in"
+        return !!localStorage.getItem('sos_user_cache');
+    }
+
+    public getRememberMe(): boolean {
+        return localStorage.getItem('sos_remember') === 'true';
+    }
+
+    public setRememberMe(val: boolean) {
+        localStorage.setItem('sos_remember', String(val));
+    }
+
+    // Syncs local player stats to Cloud (if connected)
+    public async saveToCloud(player: PlayerStats) {
+        if (firebaseAuth.isAuthenticated()) {
+            await dataService.saveProfile(player);
+        }
+    }
+
+    // Loads player from Cloud (if connected) or LocalStorage
     public getCachedPlayer(): PlayerStats | null {
-        const saved = localStorage.getItem(USER_KEY);
+        const saved = localStorage.getItem('sos_user_cache');
         return saved ? JSON.parse(saved) : null;
     }
 }

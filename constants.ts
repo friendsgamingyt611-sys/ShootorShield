@@ -231,6 +231,7 @@ export const INITIAL_PLAYER: PlayerStats = {
   totalShotsHit: 0,
   accuracyPercentage: 0,
   achievements: [],
+  matchHistory: [], // Initial History
   privacySettings: {
       showEmail: false,
       showExactStats: true,
@@ -260,6 +261,8 @@ export const INITIAL_PLAYER: PlayerStats = {
   shieldCharges: SHIELDS[0].maxCharges || 3,
   maxShieldCharges: SHIELDS[0].maxCharges || 3,
 
+  // Match Specific
+  matchStats: { damage: 0, kills: 0, deaths: 0, assists: 0, score: 0 },
   roundsWon: 0,
   cumulativeHealth: 0,
   successfulActions: 0,
